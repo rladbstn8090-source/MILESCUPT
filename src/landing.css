@@ -7,3 +7,5 @@
 .atelier-section{border-top:1px solid var(--rule)}.atelier-section h2{margin-bottom:10px}#model-workspace{min-height:340px}nav a{white-space:nowrap}@media(max-width:730px){.head nav{gap:5px}.head nav a{font-size:.79rem}}
 
 body>header{position:sticky;top:0;z-index:1000;background:var(--ivory)}html{scroll-padding-top:94px}#model-workspace{isolation:isolate}@media(max-width:730px){html{scroll-padding-top:112px}}
+
+.hero-fig img.whole-product{width:100%;height:auto;min-height:0;max-height:none;aspect-ratio:auto;object-fit:contain}.product-pair{display:grid;grid-template-columns:1fr 1fr;gap:6%;border-top:1px solid var(--rule);padding-top:24px}.product-pair h3{margin:0 0 10px;font-size:1.4rem;color:var(--green)}.product-pair small{display:block;margin-top:12px}.moments{display:block;padding:clamp(24px,5vw,68px)}.moments>div{padding:0}@media(max-width:730px){.product-pair{grid-template-columns:1fr;gap:26px}}
