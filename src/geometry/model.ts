@@ -18,13 +18,14 @@ export function generateModel(api:ManifoldToplevel,data:Landscape,bounds:Bounds,
  // Terrarium tiles include negative bathymetry. Treat it as sea, and keep the
  // printable terrain surface at sea level instead of turning ocean depth into mountains.
  const seaCells=coastalOceanCells(sampled,n),hasSea=seaCells.some(Boolean);const raw=sampled.map(value=>Math.max(0,value));
- const min=Math.min(...raw);const vertices:number[]=[]; const tri:number[]=[];
+ const min=raw.reduce((lowest,z)=>Math.min(lowest,z),Infinity);
+ const maxElevation=raw.reduce((highest,z)=>Math.max(highest,z),-Infinity);const vertices:number[]=[]; const tri:number[]=[];
  for(let y=0;y<=n;y++)for(let x=0;x<=n;x++)vertices.push(x/n*width,y/n*depth,3+(raw[y*(n+1)+x]-min)*scale*settings.exaggeration);
  for(let y=0;y<n;y++)for(let x=0;x<n;x++){const a=y*(n+1)+x,b=a+1,c=a+n+1,d=c+1;tri.push(a,b,d,a,d,c);}
  const border:number[]=[];for(let x=0;x<=n;x++)border.push(x);for(let y=1;y<=n;y++)border.push(y*(n+1)+n);for(let x=n-1;x>=0;x--)border.push(n*(n+1)+x);for(let y=n-1;y>0;y--)border.push(y*(n+1));
  const bottoms=border.map(i=>{const index=vertices.length/3;vertices.push(vertices[i*3],vertices[i*3+1],0);return index;});const center=vertices.length/3;vertices.push(width/2,depth/2,0);
  for(let i=0;i<border.length;i++){const j=(i+1)%border.length;tri.push(border[i],bottoms[i],bottoms[j],border[i],bottoms[j],border[j],center,bottoms[j],bottoms[i]);}
- const maxZ=Math.max(...vertices.filter((_,i)=>i%3===2))+15;
+ const maxZ=3+(maxElevation-min)*scale*settings.exaggeration+15;
  const project=(p:Point):Vec2=>[(p[1]-bounds.west)/(bounds.east-bounds.west)*width,(p[0]-bounds.south)/(bounds.north-bounds.south)*depth];
  const cropPoints=area?.points?.length&&area.points.length>=3?area.points:[[bounds.south,bounds.west],[bounds.south,bounds.east],[bounds.north,bounds.east],[bounds.north,bounds.west]] as Point[];
  const cropSection=keep(new api.CrossSection([cropPoints.map(project)],'EvenOdd'));
@@ -32,7 +33,7 @@ export function generateModel(api:ManifoldToplevel,data:Landscape,bounds:Bounds,
  const cropPrism=keep(cropSection.extrude(maxZ));
  const terrain=keep(baseTerrain.intersect(cropPrism));
  if(terrain.isEmpty())throw Error('선택한 출력 영역이 비어 있습니다. 범위를 다시 선택해 주세요.');
- const parts:Model['parts']=[];const maxElevation=Math.max(...raw);
+ const parts:Model['parts']=[];
  if(maxElevation<=ELEVATION_COLOR_THRESHOLD){parts.push({name:'Terrain 0-200m',color:LOW_TERRAIN_COLOR,mesh:meshOf(terrain)});}
  else if(min>=ELEVATION_COLOR_THRESHOLD){parts.push({name:'Terrain Above 200m',color:HIGH_TERRAIN_COLOR,mesh:meshOf(terrain)});}
  else {const thresholdZ=3+(ELEVATION_COLOR_THRESHOLD-min)*scale*settings.exaggeration;const lowVolume=keep(cropSection.extrude(thresholdZ));const lowTerrain=keep(terrain.intersect(lowVolume));const highTerrain=keep(terrain.subtract(lowVolume));if(!lowTerrain.isEmpty())parts.push({name:'Terrain 0-200m',color:LOW_TERRAIN_COLOR,mesh:meshOf(lowTerrain)});if(!highTerrain.isEmpty())parts.push({name:'Terrain Above 200m',color:HIGH_TERRAIN_COLOR,mesh:meshOf(highTerrain)});}

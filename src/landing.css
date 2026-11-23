@@ -5,3 +5,5 @@
 .product-link{display:inline-block;padding:14px 0;text-decoration:underline;text-underline-offset:3px;font-size:.9rem}.actions{flex-wrap:wrap}
 
 .atelier-section{border-top:1px solid var(--rule)}.atelier-section h2{margin-bottom:10px}#model-workspace{min-height:340px}nav a{white-space:nowrap}@media(max-width:730px){.head nav{gap:5px}.head nav a{font-size:.79rem}}
+
+body>header{position:sticky;top:0;z-index:1000;background:var(--ivory)}html{scroll-padding-top:94px}#model-workspace{isolation:isolate}@media(max-width:730px){html{scroll-padding-top:112px}}

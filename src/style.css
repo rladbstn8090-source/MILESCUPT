@@ -20,3 +20,5 @@ button,.map-toolbar,.step,.primary,dialog{border-radius:3px}.primary,.map-toolba
 @media(max-width:620px){.map-toolbar{position:static;width:100%;max-width:none;order:-1;padding:3px;border-width:0 0 1px}.map-wrap{display:flex;flex-direction:column;height:auto!important}.map-wrap #map{height:360px;flex:none}.studio-actions button{padding:8px 11px}.studio{grid-template-columns:minmax(0,1fr)}}
 
 .ko-map-label{text-align:center;white-space:nowrap;line-height:18px;color:#24442f;font-weight:650;font-size:13px;text-shadow:0 1px 2px #fff,1px 0 2px #fff,-1px 0 2px #fff}
+
+.studio-actions .primary{width:auto;justify-content:center}.studio-actions button{margin:0}.studio{border-radius:3px;box-shadow:none}
