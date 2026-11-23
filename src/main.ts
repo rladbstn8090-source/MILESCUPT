@@ -77,7 +77,7 @@ let tileFailures = 0;
 tileLayer.on('tileerror', () => {
   if (++tileFailures === 3) $('map-caption').textContent = '배경 지도 연결을 확인해 주세요 · 지형 생성은 계속 사용할 수 있습니다';
 });
-const path = L.polyline(route, { color: '#df6241', weight: 4, opacity: 1 }).addTo(map);
+const path = L.polyline(route, { color: '#ad704a', weight: 4, opacity: 1 }).addTo(map);
 const markers = L.layerGroup().addTo(map);
 const featureLayer = L.layerGroup().addTo(map);
 let areaLayer: L.Polygon | undefined;
@@ -347,7 +347,7 @@ function renderDraftArea() {
   draftAreaLayer?.remove();
   draftAreaLayer = undefined;
   if (!areaPoints.length) return;
-  const options = { color: '#df6241', weight: 2, dashArray: '5 5', fillOpacity: .025, interactive: false };
+  const options = { color: '#ad704a', weight: 2, dashArray: '5 5', fillOpacity: .025, interactive: false };
   draftAreaLayer = areaPoints.length >= 3 ? L.polygon(areaPoints, options).addTo(map) : L.polyline(areaPoints, options).addTo(map);
 }
 
@@ -708,7 +708,7 @@ for (const type of ['stl', '3mf']) {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `ride-relief-${Math.round(model.width)}mm.${type}`;
+      anchor.download = `MILESCULPT-${Math.round(model.width)}mm.${type}`;
       anchor.click();
       setTimeout(() => URL.revokeObjectURL(url), 5000);
       status(`${type.toUpperCase()} 파일을 저장했습니다.`);
@@ -724,7 +724,7 @@ for (const type of ['stl', '3mf']) {
 updateRoute();
 updateDimensions();
 setMode('draw');
-resetPreview('지도에서 출발점과 도착점을 정하고<br>3D로 만들 범위를 선택해 주세요.');
+resetPreview('지도에서 3D로 만들 범위를 선택하세요.<br>운동 코스를 함께 담을 수도 있습니다.');
 buttons();
 loadJinju().then((landscape) => {
   jinjuData = landscape;
