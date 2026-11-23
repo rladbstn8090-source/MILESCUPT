@@ -1,4 +1,5 @@
 import L from 'leaflet';
+import { koreanMap } from './korean-map';
 import { localPlaceMatches } from '../data/place-search';
 import { detectRouteColour, matchSavedCourse, extractNaverRoute, extractRoute, georeference, type Calibration, type Pixel } from '../data/image-route';
 import type { Bounds, Point } from '../types';
@@ -10,13 +11,14 @@ export function createRouteImport(
   onImport: (points: Point[], bounds: Bounds, label: string) => void,
   initialBounds: () => Bounds,
   savedCourses: () => {name:string; route:Point[]}[],
+  root: ShadowRoot,
 ) {
   const dialog = document.createElement('dialog');
   dialog.className = 'import-dialog';
   dialog.setAttribute('aria-labelledby', 'import-title');
   dialog.innerHTML = `
     <div class="import-heading">
-      <div><span class="eyebrow">RUN / RIDE / WALK</span><h2 id="import-title">내 운동 코스 가져오기</h2></div>
+      <div><span class="eyebrow">운동 기록</span><h2 id="import-title">내 운동 코스 가져오기</h2></div>
       <button data-id="close" aria-label="닫기">✕</button>
     </div>
     <p>네이버 지도 길찾기나 나이키 런 클럽 등 운동 앱의 <b>지도가 보이는 스크린샷</b> 또는 GPX 파일을 선택하세요. 사진은 이 기기 안에서만 분석합니다.</p>
@@ -74,7 +76,7 @@ export function createRouteImport(
       </section>
     </div>
     <div class="import-bottom"><span>사진 복원 경로와 거리는 추정값입니다.</span><button data-id="apply" class="primary" disabled>위치 확인 후 3D 모형 만들기</button></div>`;
-  document.body.append(dialog);
+  root.append(dialog);
 
   const get = <T extends HTMLElement = HTMLElement>(id: string) =>
     dialog.querySelector(`[data-id="${id}"]`) as T;
@@ -475,7 +477,7 @@ export function createRouteImport(
       [initialBounds().south, initialBounds().west],
       [initialBounds().north, initialBounds().east],
     ]);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+    koreanMap(map);
     pins = L.layerGroup().addTo(map);
     correctionLayer = L.layerGroup().addTo(map);
     map.on('click', (event: L.LeafletMouseEvent) => {

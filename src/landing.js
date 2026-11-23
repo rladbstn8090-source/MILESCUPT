@@ -22,9 +22,38 @@ form.onsubmit=e=>{
  status.querySelector('textarea').value=body;status.querySelector('a').href=mail; location.href=mail;
 };
 
-const spec = new URLSearchParams(location.search);
+function fillSpec(spec){
 const values = ['width','depth','height','km'].map(key=>spec.get(key));
 if (values.every(value=>value!==null && /^\d{1,5}(\.\d{1,2})?$/.test(value))) {
   form.elements['관심 제품'].value='지형 모형';
   form.elements['문의 내용'].value='제작 스튜디오에서 만든 모형입니다. 크기 '+values.slice(0,3).join(' × ')+' mm, 코스 거리 '+values[3]+' km.';
+}
+
+}
+fillSpec(new URLSearchParams(location.search));
+window.addEventListener('model-inquiry',event=>{
+  fillSpec(event.detail);
+  location.hash='contact';
+  document.getElementById('contact').scrollIntoView();
+});
+const studioSection=document.getElementById('studio');
+let loading;
+function loadStudio(){
+  if(!loading)loading=import('./main.ts').catch(error=>{
+    loading=undefined;
+    document.getElementById('model-workspace').textContent='제작 화면을 불러오지 못했습니다. 다시 시도해 주세요.';
+    throw error;
+  });
+  return loading;
+}
+const observer=new IntersectionObserver(entries=>{
+  if(entries.some(entry=>entry.isIntersecting)){observer.disconnect();loadStudio().catch(()=>{});}
+},{rootMargin:'250px'});
+observer.observe(studioSection);
+document.querySelectorAll('[data-start]').forEach(link=>link.addEventListener('click',async event=>{
+  event.preventDefault();location.hash='studio';studioSection.scrollIntoView();
+  (await loadStudio()).startStudio(link.dataset.start);
+}));
+if(location.hash==='#studio'){
+  loadStudio().then(studio=>studio.startStudio(new URLSearchParams(location.search).get('start')));
 }
