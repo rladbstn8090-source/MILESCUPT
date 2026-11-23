@@ -7,3 +7,5 @@ export const SOUTH_KOREA_BOUNDS: Bounds = {
   north: 38.8,
   east: 131.1,
 };
+
+export const PENINSULA_BOUNDS: Bounds = { south: 32.8, west: 124, north: 43.1, east: 132.1 };

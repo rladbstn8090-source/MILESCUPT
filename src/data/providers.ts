@@ -1,12 +1,12 @@
 import type { Bounds, Feature, Landscape, Point } from '../types';
 import { JINJU_BOUNDS } from './jinju';
-import { SOUTH_KOREA_BOUNDS } from './korea';
+import { PENINSULA_BOUNDS, SOUTH_KOREA_BOUNDS } from './korea';
 import { loadVectorFeatures } from './vector-features';
 const LOCAL_BASE=(import.meta as ImportMeta & {env?:{BASE_URL?:string}}).env?.BASE_URL??'/';
 export function contains(outer: Bounds, inner: Bounds) { return inner.south>=outer.south && inner.north<=outer.north && inner.west>=outer.west && inner.east<=outer.east; }
 export function rangeKilometers(bounds:Bounds){return {width:(bounds.east-bounds.west)*111.32*Math.cos((bounds.north+bounds.south)*Math.PI/360),height:(bounds.north-bounds.south)*111.32};}
-export const MAX_RANGE_KM = 750;
-export function terrainQuality(bounds:Bounds){const size=rangeKilometers(bounds),longest=Math.max(size.width,size.height);if(longest<=15)return {resolution:192,zoom:14};if(longest<=60)return {resolution:256,zoom:13};if(longest<=200)return {resolution:288,zoom:11};return {resolution:320,zoom:10};}
+export const MAX_RANGE_KM = 1400;
+export function terrainQuality(bounds:Bounds){const size=rangeKilometers(bounds),longest=Math.max(size.width,size.height);if(longest<=15)return {resolution:192,zoom:14};if(longest<=60)return {resolution:256,zoom:13};if(longest<=200)return {resolution:288,zoom:11};return {resolution:320,zoom:longest>500?6:8};}
 function sample(data:Landscape,lat:number,lon:number){const r=data.resolution;const fx=Math.max(0,Math.min(r,(lon-data.bounds.west)/(data.bounds.east-data.bounds.west)*r)),fy=Math.max(0,Math.min(r,(lat-data.bounds.south)/(data.bounds.north-data.bounds.south)*r));const x=Math.min(r-1,Math.floor(fx)),y=Math.min(r-1,Math.floor(fy)),u=fx-x,v=fy-y;const at=(a:number,b:number)=>data.elevations[b*(r+1)+a];return at(x,y)*(1-u)*(1-v)+at(x+1,y)*u*(1-v)+at(x,y+1)*(1-u)*v+at(x+1,y+1)*u*v;}
 export function createOverviewLandscape(bounds:Bounds,base?:Landscape):Landscape{const resolution=Math.max(160,terrainQuality(bounds).resolution);const elevations:number[]=[];for(let y=0;y<=resolution;y++)for(let x=0;x<=resolution;x++){const lat=bounds.south+(bounds.north-bounds.south)*y/resolution,lon=bounds.west+(bounds.east-bounds.west)*x/resolution;elevations.push(base?sample(base,lat,lon):80+12*Math.sin(lat*31)*Math.cos(lon*27)+6*Math.sin((lat+lon)*53));}const features=base?base.features.filter(feature=>feature.rings.some(ring=>ring.some(point=>point[0]>=bounds.south&&point[0]<=bounds.north&&point[1]>=bounds.west&&point[1]<=bounds.east))):[];return {bounds,resolution,elevations,features,detail:'detailed',source:`고해상도 대체 지형 · ${resolution}×${resolution} 셀`};}
 export async function loadJinju(): Promise<Landscape> { const r=await fetch(`${LOCAL_BASE}data/jinju.json`); if(!r.ok) throw Error('진주 지형 데이터를 읽지 못했습니다.'); return r.json(); }
@@ -86,14 +86,32 @@ export async function loadRemote(bounds: Bounds, progress:(s:string)=>void,signa
  progress(`고해상도 고도 ${n}×${n} 셀을 가져오는 중…`);
  let elevations:number[];
  try{elevations=await elevationLandscape(bounds,n,z,signal,false);}
- catch(error){if(signal?.aborted||!contains(SOUTH_KOREA_BOUNDS,bounds))throw error;progress('온라인 고도가 지연되어 남한 로컬 고도를 고해상도로 보간하는 중…');elevations=await elevationLandscape(bounds,n,9,signal,true);}
+ catch(error){if(signal?.aborted)throw error;
+ if(!contains(SOUTH_KOREA_BOUNDS,bounds)){
+   progress('한반도 광역 실제 고도를 불러오는 중…');
+   try { elevations=await elevationLandscape(bounds,n,6,signal,contains(PENINSULA_BOUNDS,bounds)); }
+   catch (fallbackError) {
+     if (signal?.aborted || !contains(PENINSULA_BOUNDS,bounds)) throw fallbackError;
+     elevations=await elevationLandscape(bounds,n,6,signal,false);
+   }
+ } else {progress('온라인 고도가 지연되어 남한 로컬 고도를 고해상도로 보간하는 중…');elevations=await elevationLandscape(bounds,n,9,signal,true);}}
  progress('건물 높이·공원·수변을 가져오는 중…');
- const features=await osmFeatures(bounds,signal,progress);
+ let features: Feature[] = [];
+ let detailNote = '';
+ if (Math.max(kmWide,kmDeep) > 350) {
+   detailNote = '광역 모형 · 세부 지물 생략 · ';
+ } else {
+   try { features = await osmFeatures(bounds,requestSignal(signal,25000),progress); }
+   catch (error) {
+     if (signal?.aborted) throw error;
+     detailNote = '세부 지물 미수신 · ';
+   }
+ }
  const buildings=features.filter(feature=>feature.kind==='building').length;
  const parks=features.filter(feature=>feature.kind==='park').length;
  const waters=features.filter(feature=>feature.kind==='water').length;
  const city=metropolitanCity(bounds);
- return {bounds,resolution:n,elevations,features,detail:'detailed',source:`${city?`${city} `:''}고해상도 ${n}×${n} · 건물 ${buildings.toLocaleString('ko-KR')}개 · 공원 ${parks.toLocaleString('ko-KR')}개 · 수변 ${waters.toLocaleString('ko-KR')}개 · OpenStreetMap`};
+ return {bounds,resolution:n,elevations,features,detail:'detailed',source:`${detailNote}${city?`${city} `:''}고해상도 ${n}×${n} · 건물 ${buildings.toLocaleString('ko-KR')}개 · 공원 ${parks.toLocaleString('ko-KR')}개 · 수변 ${waters.toLocaleString('ko-KR')}개 · OpenStreetMap`};
 }
 // Kept separate from route ingestion so future GPX files only need a Point[] adapter.
 export function parseOSM(data:any):Feature[]{

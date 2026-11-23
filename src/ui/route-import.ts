@@ -1,5 +1,6 @@
 import L from 'leaflet';
-import { extractNaverRoute, extractRoute, georeference, type Calibration, type Pixel } from '../data/image-route';
+import { localPlaceMatches } from '../data/place-search';
+import { detectRouteColour, matchSavedCourse, extractNaverRoute, extractRoute, georeference, type Calibration, type Pixel } from '../data/image-route';
 import type { Bounds, Point } from '../types';
 
 type EditTool = 'color' | 'crop' | 'trace';
@@ -8,6 +9,7 @@ type AlignStage = 'idle' | 'photo-a' | 'map-a' | 'photo-b' | 'map-b' | 'review';
 export function createRouteImport(
   onImport: (points: Point[], bounds: Bounds, label: string) => void,
   initialBounds: () => Bounds,
+  savedCourses: () => {name:string; route:Point[]}[],
 ) {
   const dialog = document.createElement('dialog');
   dialog.className = 'import-dialog';
@@ -17,7 +19,7 @@ export function createRouteImport(
       <div><span class="eyebrow">RUN / RIDE / WALK</span><h2 id="import-title">내 운동 코스 가져오기</h2></div>
       <button data-id="close" aria-label="닫기">✕</button>
     </div>
-    <p>네이버 지도 길찾기나 나이키 런 클럽 등 운동 앱의 <b>지도가 보이는 스크린샷</b> 또는 GPX 파일을 선택하세요. 사진은 이 Mac 안에서만 분석합니다.</p>
+    <p>네이버 지도 길찾기나 나이키 런 클럽 등 운동 앱의 <b>지도가 보이는 스크린샷</b> 또는 GPX 파일을 선택하세요. 사진은 이 기기 안에서만 분석합니다.</p>
     <label class="file-zone">사진 또는 GPX 선택<input data-id="file" type="file" accept="image/png,image/jpeg,image/webp,.gpx"></label>
     <p data-id="message" role="status" aria-live="polite">PNG · JPG · WebP · GPX / 최대 15 MB. 사진에서 실제 GPS 기록·페이스·시간은 복원하지 않습니다.</p>
     <div data-id="gpx" hidden><label>가져올 기록 구간 <select data-id="segment"></select></label></div>
@@ -34,7 +36,7 @@ export function createRouteImport(
           <button data-tool="trace">직접 따라 그리기</button>
           <button data-id="undo">한 점 취소</button>
         </div>
-        <p class="import-help">네이버 길찾기 사진은 파란 경로를 자동으로 인식합니다. 다른 앱은 선 가운데를 클릭해 색상을 고른 뒤 코스 분석을 누르세요. 숫자나 아이콘이 선을 많이 가리면 직접 따라 그릴 수 있습니다.</p>
+        <p class="import-help">색이 뚜렷한 경로는 자동으로 찾습니다. 잘못 인식하면 선 가운데를 클릭해 색상을 고른 뒤 코스 분석을 누르세요. 숫자나 아이콘이 선을 많이 가리면 직접 따라 그릴 수 있습니다.</p>
       </section>
       <div class="import-grid">
         <div>
@@ -45,6 +47,7 @@ export function createRouteImport(
         <div>
           <h3>실제 지도</h3>
           <div data-id="map" class="calibration-map"></div>
+          <div class="coordinate-jump"><label>지역으로 이동<input data-id="region" placeholder="예: 진주, 부산, 평양"></label><button data-id="find-region">지역 찾기</button></div>
           <div class="coordinate-jump">
             <label>위도<input data-id="lat" type="number" step="any" value="35.184"></label>
             <label>경도<input data-id="lon" type="number" step="any" value="128.057"></label>
@@ -59,6 +62,7 @@ export function createRouteImport(
           <span data-stage="photo-a">A 사진</span><b>→</b><span data-stage="map-a">A 지도</span><b>→</b><span data-stage="photo-b">B 사진</span><b>→</b><span data-stage="map-b">B 지도</span>
         </div>
         <div class="align-actions">
+          <button data-id="quick-align" disabled>사진 속 A·B를 지도에서 지정</button>
           <button data-id="start-align" class="primary" disabled>위치 맞추기 시작</button>
           <button data-id="reset-align" hidden>기준점 다시 찍기</button>
           <button data-id="edit-route" hidden>지도에서 코스 세밀하게 수정</button>
@@ -69,7 +73,7 @@ export function createRouteImport(
         <label class="review-check"><input data-id="review" type="checkbox" disabled> 지도 위 주황색 코스의 위치를 확인했습니다.</label>
       </section>
     </div>
-    <div class="import-bottom"><span>사진 복원 경로와 거리는 추정값입니다.</span><button data-id="apply" class="primary" disabled>이 코스를 지도에 적용</button></div>`;
+    <div class="import-bottom"><span>사진 복원 경로와 거리는 추정값입니다.</span><button data-id="apply" class="primary" disabled>위치 확인 후 3D 모형 만들기</button></div>`;
   document.body.append(dialog);
 
   const get = <T extends HTMLElement = HTMLElement>(id: string) =>
@@ -95,6 +99,7 @@ export function createRouteImport(
   let kind = 'photo';
   let photoSource: 'generic' | 'naver' = 'generic';
   let fileName = '';
+  let quickAlign = false;
   let segments: Point[][] = [];
   let loadId = 0;
 
@@ -127,6 +132,7 @@ export function createRouteImport(
       element.classList.toggle('active', element.dataset.stage === alignStage);
       element.classList.toggle('done', current > stages.indexOf(element.dataset.stage as AlignStage) || alignStage === 'review');
     });
+    get<HTMLButtonElement>('quick-align').disabled = path.length < 2;
     get<HTMLButtonElement>('start-align').disabled = path.length < 2;
     get<HTMLButtonElement>('start-align').hidden = alignStage !== 'idle' && alignStage !== 'review';
     get<HTMLButtonElement>('start-align').textContent = alignStage === 'review' ? '위치 다시 맞추기' : '위치 맞추기 시작';
@@ -170,6 +176,7 @@ export function createRouteImport(
   }
 
   function resetAlignment(nextStage: AlignStage = 'idle') {
+    quickAlign = false;
     a = undefined;
     b = undefined;
     coords = [];
@@ -274,6 +281,7 @@ export function createRouteImport(
 
   dialog.querySelectorAll<HTMLButtonElement>('[data-tool]').forEach((element) => {
     element.onclick = () => {
+      if (alignStage !== 'idle') resetAlignment();
       if (element.dataset.tool === 'trace' && editTool !== 'trace') {
         path = [];
         get('detect-state').textContent = '직접 그리는 중';
@@ -405,6 +413,20 @@ export function createRouteImport(
     draw();
   };
   get('review').onchange = updateApply;
+  get('quick-align').onclick = () => {
+    if (path.length < 2) return;
+    resetAlignment();
+    const first = path[0];
+    const distance = (p:Pixel) => Math.hypot(p[0]-first[0],p[1]-first[1]);
+    const other = path.reduce((far,p)=>distance(p)>distance(far)?p:far,first);
+    if (distance(other)<20) {message('코스가 너무 작습니다. 사진을 확대해 다시 선택하세요.',true);return;}
+    a={pixel:first,coordinate:[0,0]};
+    b={pixel:other,coordinate:[0,0]};
+    quickAlign=true;
+    alignStage='map-a';
+    draw(); updateAlignUI();
+    message('사진에 표시된 A, B 위치를 실제 지도에서 같은 순서로 클릭하세요.');
+  };
   get('start-align').onclick = () => {
     resetAlignment('photo-a');
     message('위치 맞추기를 시작했습니다. 화면 아래 안내에 따라 사진과 지도를 번갈아 클릭하세요.');
@@ -426,6 +448,13 @@ export function createRouteImport(
     renderCorrectionHandles();
     get<HTMLInputElement>('review').checked = false;
     updateAlignUI();
+  };
+  get('find-region').onclick = () => {
+    const query=get<HTMLInputElement>('region').value.trim();
+    const place=localPlaceMatches(query)[0];
+    if (!place) { message('빠른 이동 목록에 없는 지역입니다. 실제 지도를 확대하거나 아래 위도·경도로 이동하세요.');return; }
+    map!.setView(place.coordinate,13);
+    message(place.name+' 주변으로 이동했습니다. 사진과 같은 지점을 선택하세요.');
   };
   get('jump').onclick = () => {
     const lat = +get<HTMLInputElement>('lat').value;
@@ -457,7 +486,7 @@ export function createRouteImport(
       const coordinate: Point = [event.latlng.lat, event.latlng.lng];
       if (alignStage === 'map-a' && a) {
         a.coordinate = coordinate;
-        alignStage = 'photo-b';
+        alignStage = quickAlign ? 'map-b' : 'photo-b';
       } else if (alignStage === 'map-b' && b) {
         b.coordinate = coordinate;
         alignStage = 'review';
@@ -538,7 +567,19 @@ export function createRouteImport(
         initMap();
         setEditTool('color');
         resetAlignment();
-        if (!analyzeNaver(true)) message('사진을 열었습니다. 네이버 사진이면 자동 인식 버튼을, 다른 앱이면 코스 선의 색상을 선택한 뒤 코스 분석을 누르세요.');
+        const detected = detectRouteColour(pixels.data,canvas.width,canvas.height,crop);
+        if (detected) {
+          get<HTMLInputElement>('color').value = '#'+detected.color.map(v=>v.toString(16).padStart(2,'0')).join('');
+          acceptDetectedPath(detected.path,'generic','코스 후보를 찾았습니다. 사진 위 선을 확인해 주세요.');
+        } else if (!analyzeNaver(true)) {
+          message('코스 선을 찾지 못했습니다. 지도만 자르거나 선의 색상을 선택해 주세요.');
+        }
+        const match = matchSavedCourse(path,savedCourses());
+        if (match) {
+          a=match.a; b=match.b; alignStage='review';
+          calculateAlignment(); draw(); updateAlignUI();
+          message('저장 코스 ‘'+match.name+'’와 형태가 일치합니다. 지도 위 위치를 확인한 뒤 모형을 만드세요.');
+        } else if (path.length >= 2) get<HTMLButtonElement>('quick-align').click();
       }
     } catch (error) {
       message((error as Error).message, true);

@@ -8,7 +8,8 @@
     "dev:lan": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "node --import tsx --test src/geometry/model.test.ts src/data/image-route.test.ts src/data/saved-routes.test.ts src/data/place-search.test.ts src/data/vector-features.test.ts src/data/selection-area.test.ts"
+    "test": "node --import tsx --test src/geometry/model.test.ts src/data/image-route.test.ts src/data/saved-routes.test.ts src/data/place-search.test.ts src/data/vector-features.test.ts src/data/selection-area.test.ts",
+    "postbuild": "node scripts/peninsula-dem.mjs"
   },
   "dependencies": {
     "@mapbox/vector-tile": "^3.0.0",

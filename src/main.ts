@@ -3,7 +3,7 @@ import QRCode from 'qrcode';
 import 'leaflet/dist/leaflet.css';
 import './style.css';
 import { distanceKm } from './data/jinju';
-import { SOUTH_KOREA_BOUNDS } from './data/korea';
+import { PENINSULA_BOUNDS, SOUTH_KOREA_BOUNDS } from './data/korea';
 import { localPlaceMatches, parseNominatimResults, QUICK_PLACES, type PlaceResult } from './data/place-search';
 import { contains, loadJinju, loadKoreaOverview, loadRemote } from './data/providers';
 import { decodeSavedRoutes, encodeSavedRoutes, SAVED_ROUTES_KEY, type SavedRoute } from './data/saved-routes';
@@ -16,15 +16,15 @@ import type { Bounds, Landscape, Model, Point, SelectionArea, Settings } from '.
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 document.querySelector('#app')!.innerHTML = `
-<header><a class="brand" href="./" aria-label="Ride Relief 홈"><span class="brand-symbol">↗</span>ride<span>relief</span><small>ROUTE TO OBJECT</small></a><div class="header-right"><span class="local">LOCAL STUDIO</span><button id="open-share" class="quiet">QR · 실행</button><button id="open-saves" class="quiet">저장 · 불러오기</button><button id="import-route" class="quiet">사진 · GPX 가져오기</button></div></header>
-<main><div class="page-title"><div><span class="eyebrow">YOUR RIDE, IN A NEW DIMENSION</span><h1>달린 길을, 손에 담다.</h1></div><p>남한 어디서든 출발과 도착을 정하고<br>나만의 입체 지도를 만드세요.</p></div>
-<div class="studio"><section class="workbench"><div class="panel map-panel"><div class="panel-head"><div><span class="step">01</span><h2>코스와 범위</h2></div><span class="meta">SOUTH KOREA</span></div><div class="map-wrap"><div id="map" aria-label="코스 편집 지도"></div><div class="map-toolbar" role="group" aria-label="지도 도구"><button id="open-place-search" class="place-search-trigger">⌕ 지역 찾기</button><button id="move">이동</button><button id="draw" class="active">＋ 출발·도착 그리기</button><select id="area-shape" aria-label="출력 범위 모양"><option value="rectangle">직사각형</option><option value="circle">원</option><option value="polygon">자유 영역</option></select><button id="area">▣ 범위 선택</button><button id="finish-area" hidden>영역 완성</button></div><div class="map-caption" id="map-caption">첫 번째 클릭이 출발점, 마지막 클릭이 도착점입니다</div></div><div class="map-footer"><span><i class="route-line"></i><b id="distance">0.0</b> km <span class="muted">· <span id="points">0</span>개 지점</span></span><div><button id="undo" class="text-button">한 점 취소</button><button id="clear" class="text-button">코스·범위 초기화</button><button id="fit" class="text-button">코스 맞춤</button></div></div></div>
+<header><a class="brand" href="./" aria-label="MILESCULPT 홈"><span class="brand-symbol">↗</span>ride<span>relief</span><small>ROUTE TO OBJECT</small></a><div class="header-right"><a class="quiet" href="./#contact">제작 문의</a><button id="open-share" class="quiet">QR · 실행</button><button id="open-saves" class="quiet">저장 · 불러오기</button><button id="import-route" class="quiet">사진 · GPX 가져오기</button></div></header>
+<main><div class="page-title"><div><span class="eyebrow">YOUR RIDE, IN A NEW DIMENSION</span><h1>달린 길을, 손에 담다.</h1></div><p>한반도에서 코스나 지형을 선택해<br>나만의 입체 지도를 만드세요.</p></div>
+<div class="studio"><section class="workbench"><div class="panel map-panel"><div class="panel-head"><div><span class="step">01</span><h2>코스와 범위</h2></div><span class="meta">KOREAN PENINSULA</span></div><div class="map-wrap"><div id="map" aria-label="코스 편집 지도"></div><div class="map-toolbar" role="group" aria-label="지도 도구"><button id="open-place-search" class="place-search-trigger">⌕ 지역 찾기</button><button id="move">이동</button><button id="draw" class="active">＋ 출발·도착 그리기</button><select id="area-shape" aria-label="출력 범위 모양"><option value="rectangle">직사각형</option><option value="circle">원</option><option value="polygon">자유 영역</option></select><button id="area">▣ 범위 선택</button><button id="finish-area" hidden>영역 완성</button></div><div class="map-caption" id="map-caption">첫 번째 클릭이 출발점, 마지막 클릭이 도착점입니다</div></div><div class="map-footer"><span><i class="route-line"></i><b id="distance">0.0</b> km <span class="muted">· <span id="points">0</span>개 지점</span></span><div><button id="undo" class="text-button">한 점 취소</button><button id="clear" class="text-button">코스·범위 초기화</button><button id="fit" class="text-button">코스 맞춤</button></div></div></div>
 <div class="panel preview-panel"><div class="panel-head"><div><span class="step">02</span><h2>3D 미리보기</h2></div><button id="camera" class="text-button">시점 초기화 ⤢</button></div><div id="preview"><div class="preview-label"><span class="micro">MY ROUTE / LIVE</span><strong>나의 코스</strong></div><div id="preview-empty" class="preview-empty">출발·도착과 출력 범위를 정하면<br>선택한 부분의 3D 모형이 만들어집니다.</div><div class="preview-hint">드래그하여 회전 · 스크롤하여 확대</div><div class="compass">N ↑</div></div><div class="preview-footer"><span id="model-size">코스와 범위를 기다리는 중</span><span id="mesh-info">LIVE PREVIEW</span></div></div></section>
 <aside><div class="settings-head"><span class="step">03</span><h2>나만의 모형</h2></div><section class="control-section"><h3>출력 크기 <span>01 / SIZE</span></h3><label class="range-label" for="width">가장 긴 변 <output id="width-value">180 mm</output></label><input id="width" type="range" min="100" max="220" step="10" value="180"><div class="range-ends"><span>100 mm</span><span>220 mm</span></div><p class="helper" id="depth">범위를 선택하면 출력 비율이 계산됩니다.</p></section>
 <section class="control-section"><h3>지형과 코스 <span>02 / RELIEF</span></h3><label class="range-label" for="exaggeration">지형 높이 강조 <output id="exaggeration-value">2.5×</output></label><input id="exaggeration" type="range" min="1" max="8" step=".5" value="2.5"><label class="range-label second" for="buildingExaggeration">건물 높이 강조 <output id="buildingExaggeration-value">1.5×</output></label><input id="buildingExaggeration" type="range" min="1" max="4" step=".5" value="1.5"><label class="range-label second" for="routeWidth">코스 선 두께 <output id="routeWidth-value">1.6 mm</output></label><input id="routeWidth" type="range" min=".8" max="4" step=".2" value="1.6"></section>
 	<section class="control-section"><h3>레이어 <span>03 / LAYERS</span></h3><div class="layer"><span><span class="terrain-swatches"><i style="background:#c9dda2" title="해발 200m 이하"></i><i style="background:#4f7f45" title="해발 200m 초과"></i></span>지형 · 해발 200m 기준</span><span class="fixed">항상 표시</span></div><label class="layer"><span><i style="background:#e56542"></i>운동 코스</span><input id="route" type="checkbox" role="switch" checked></label><label class="layer"><span><i style="background:#e9e5db"></i>건물</span><input id="buildings" type="checkbox" role="switch" checked></label><label class="layer"><span><i style="background:#c9dda2"></i>공원 · 녹지</span><input id="parks" type="checkbox" role="switch" checked></label><label class="layer"><span><i style="background:#74b7c9"></i>강 · 호수 · 바다</span><input id="water" type="checkbox" role="switch" checked></label></section>
-<div class="generate-area"><div class="live-preview-label"><i></i>자동 미리보기</div><button id="generate" class="primary" disabled>3D 미리보기 새로고침 <span>↗</span></button><p id="status" role="status" aria-live="polite">남한 지도를 준비하고 있습니다.</p></div><div class="export-area"><span class="eyebrow">READY FOR YOUR PRINTER</span><div class="export-buttons"><button id="stl" disabled>↓ STL <small>단색 출력</small></button><button id="3mf" disabled>↓ 3MF <small>레이어별 색상</small></button></div><p class="helper">Bambu Studio에서 mm 단위로 열어 주세요.<br>3MF는 부품별 필라멘트를 지정할 수 있습니다.</p></div></aside></div>
-	<footer><span id="source">대한민국 지형 데이터 확인 중</span><span>3 mm 받침대 · 코스 돌출 1.2 mm</span></footer><details class="notes"><summary>데이터와 출력 안내</summary><p>처음에는 빈 남한 전체 지도가 열립니다. 출발·도착 그리기에서 첫 클릭은 출발점, 마지막 클릭은 도착점이며 중간 클릭은 경유점입니다. 각 점은 직선으로 연결되며 도로 자동 탐색은 하지 않습니다.</p><p>범위 선택에서 직사각형·원·자유 영역을 고를 수 있습니다. 선택 외곽선 그대로 지형 받침대와 모든 레이어가 잘립니다. 짧은 도시런부터 마라톤·자전거 종주까지 범위 크기에 맞춰 192×192~320×320 지형 셀과 최고 해상도의 지도 타일을 자동 선택합니다. 넓은 범위도 48×48 간략 모드로 낮추지 않으며 처리 중 진행 상황을 표시합니다.</p><p>지형은 실제 해발 200m를 기준으로 나뉩니다. 200m 이하는 연두색, 초과 구간은 초록색이며 3MF에서 각각 별도 부품으로 저장됩니다. STL은 두 지형 부품을 포함한 모든 레이어를 하나의 닫힌 입체로 합치며 파일 규격상 색상은 담지 않습니다. 실제 출력 전 슬라이서에서 크기와 레이어를 확인하세요.</p><p>Map © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors (ODbL)</a> · Elevation © <a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md" target="_blank" rel="noreferrer">Mapzen / source attribution</a>. 배경 지도와 도시 상세 지물에는 인터넷이 필요합니다. 새 영역은 남한 종주 범위를 포함해 가로·세로 750 km까지 선택할 수 있습니다.</p></details></main>
+<div class="generate-area"><div class="live-preview-label"><i></i>자동 미리보기</div><button id="generate" class="primary" disabled>3D 미리보기 새로고침 <span>↗</span></button><p id="status" role="status" aria-live="polite">한반도 지도를 준비하고 있습니다.</p></div><div class="export-area"><span class="eyebrow">READY FOR YOUR PRINTER</span><div class="export-buttons"><button id="stl" disabled>↓ STL <small>단색 출력</small></button><button id="3mf" disabled>↓ 3MF <small>레이어별 색상</small></button></div><button id="ask-model" class="quiet" hidden>이 모형으로 제작 문의</button><p class="helper">Bambu Studio에서 mm 단위로 열어 주세요.<br>3MF는 부품별 필라멘트를 지정할 수 있습니다.</p></div></aside></div>
+	<footer><span id="source">대한민국 지형 데이터 확인 중</span><span>3 mm 받침대 · 코스 돌출 1.2 mm</span></footer><details class="notes"><summary>데이터와 출력 안내</summary><p>범위만 선택하면 지형 단품을 만들 수 있습니다. 처음에는 한반도 전체 지도가 열립니다. 출발·도착 그리기에서 첫 클릭은 출발점, 마지막 클릭은 도착점이며 중간 클릭은 경유점입니다. 각 점은 직선으로 연결되며 도로 자동 탐색은 하지 않습니다.</p><p>범위 선택에서 직사각형·원·자유 영역을 고를 수 있습니다. 선택 외곽선 그대로 지형 받침대와 모든 레이어가 잘립니다. 짧은 도시런부터 마라톤·자전거 종주까지 범위 크기에 맞춰 192×192~320×320 지형 셀과 최고 해상도의 지도 타일을 자동 선택합니다. 넓은 범위도 48×48 간략 모드로 낮추지 않으며 처리 중 진행 상황을 표시합니다.</p><p>지형은 실제 해발 200m를 기준으로 나뉩니다. 200m 이하는 연두색, 초과 구간은 초록색이며 3MF에서 각각 별도 부품으로 저장됩니다. STL은 두 지형 부품을 포함한 모든 레이어를 하나의 닫힌 입체로 합치며 파일 규격상 색상은 담지 않습니다. 실제 출력 전 슬라이서에서 크기와 레이어를 확인하세요.</p><p>Map © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors (ODbL)</a> · Elevation © <a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md" target="_blank" rel="noreferrer">Mapzen / source attribution</a>. 배경 지도와 도시 상세 지물에는 인터넷이 필요합니다. 새 영역은 한반도 전역을 포함해 가로·세로 1,400 km까지 선택할 수 있습니다.</p></details></main>
 <dialog id="saved-dialog" class="saved-dialog" aria-labelledby="saved-title"><div class="saved-heading"><div><span class="eyebrow">LOCAL ROUTE LIBRARY</span><h2 id="saved-title">저장한 코스</h2></div><button id="close-saves" aria-label="닫기">✕</button></div><p>코스, 출력 범위와 현재 모형 설정을 이 Mac의 브라우저에 저장합니다.</p><div class="save-current"><input id="save-name" maxlength="40" placeholder="코스 이름"><button id="save-current" class="primary">현재 코스 저장</button></div><p id="save-message" role="status" aria-live="polite"></p><div id="saved-list" class="saved-list"></div></dialog>
 <dialog id="share-dialog" class="share-dialog" aria-labelledby="share-title"><div class="saved-heading"><div><span class="eyebrow">RUN ANYWHERE</span><h2 id="share-title">QR · GitHub · VS Code 실행</h2></div><button id="close-share" aria-label="닫기">✕</button></div><div class="share-grid"><div class="qr-card"><canvas id="share-qr" width="240" height="240" aria-label="현재 Ride Relief 주소 QR 코드"></canvas><label for="share-url">QR에 넣을 주소</label><input id="share-url" type="url"><div><button id="refresh-qr">QR 새로 만들기</button><button id="copy-share-url">주소 복사</button></div><p id="share-message" role="status"></p></div><div class="run-guide"><h3>휴대폰</h3><p>같은 와이파이에서 <b>Start Ride Relief - QR.command</b>를 실행하면 Mac의 접속 주소로 열립니다. 그 화면의 QR을 휴대폰으로 스캔하세요.</p><h3>VS Code</h3><p>프로젝트를 열고 <b>터미널 → 작업 실행 → Ride Relief: 실행</b>을 선택하세요. 네트워크 실행 작업도 준비되어 있습니다.</p><h3>GitHub Pages</h3><p>이 폴더를 GitHub 저장소에 올리면 포함된 Actions 설정이 자동으로 빌드합니다. 저장소 설정에서 Pages 소스를 <b>GitHub Actions</b>로 선택하세요.</p></div></div></dialog>
 <dialog id="place-dialog" class="place-dialog" aria-labelledby="place-title"><div class="saved-heading"><div><span class="eyebrow">FIND A PLACE</span><h2 id="place-title">어디로 이동할까요?</h2></div><button id="close-place-search" aria-label="닫기">✕</button></div><p>도시를 누르거나 동네·관광지·주소를 검색하면 지도에서 바로 확대합니다.</p><div id="quick-places" class="quick-places"></div><form id="place-form" class="place-form"><input id="place-query" autocomplete="off" maxlength="100" placeholder="예: 부산 태종대, 진주성, 광안리"><button class="primary">검색</button></form><p id="place-message" role="status" aria-live="polite">검색은 버튼을 누를 때 한 번만 실행됩니다.</p><div id="place-results" class="place-results"></div><small class="geocoder-credit">검색 결과 © OpenStreetMap contributors · Nominatim</small></dialog>`;
@@ -67,7 +67,7 @@ function job(type: string, payload: unknown): Promise<unknown> {
   });
 }
 
-const map = L.map('map', { zoomControl: false }).fitBounds([[SOUTH_KOREA_BOUNDS.south, SOUTH_KOREA_BOUNDS.west], [SOUTH_KOREA_BOUNDS.north, SOUTH_KOREA_BOUNDS.east]], { padding: [18, 18] });
+const map = L.map('map', { zoomControl: false }).fitBounds([[PENINSULA_BOUNDS.south, PENINSULA_BOUNDS.west], [PENINSULA_BOUNDS.north, PENINSULA_BOUNDS.east]], { padding: [18, 18] });
 L.control.zoom({ position: 'bottomleft' }).addTo(map);
 new ResizeObserver(() => map.invalidateSize()).observe($('map'));
 const tileLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
@@ -186,13 +186,13 @@ function renderSavedRoutes() {
 
 $('open-saves').onclick = () => {
   $<HTMLInputElement>('save-name').value = routeLabel === '직접 그린 코스' ? '' : routeLabel;
-  savedMessage(route.length >= 2 && bounds ? '현재 코스를 새 이름으로 저장하거나 목록에서 불러오세요.' : '저장하려면 먼저 코스와 범위를 정해 주세요.');
+  savedMessage(bounds ? '현재 코스를 새 이름으로 저장하거나 목록에서 불러오세요.' : '저장하려면 먼저 출력 범위를 정해 주세요.');
   renderSavedRoutes();
   savedDialog.showModal();
 };
 $('close-saves').onclick = () => savedDialog.close();
 $('save-current').onclick = () => {
-  if (route.length < 2 || !bounds) {
+  if (!bounds) {
     savedMessage('코스와 출력 범위를 먼저 정해 주세요.', true);
     return;
   }
@@ -251,8 +251,9 @@ function status(text: string, error = false) {
 }
 
 function buttons() {
+  $('ask-model').hidden = busy || dirty || !model;
   for (const id of ['stl', '3mf']) $<HTMLButtonElement>(id).disabled = busy || dirty || !model;
-  $<HTMLButtonElement>('generate').disabled = busy || !data || route.length < 2 || !bounds || !area;
+  $<HTMLButtonElement>('generate').disabled = busy || !bounds || !area;
   $('generate').innerHTML = busy ? '3D 미리보기 갱신 중…' : '3D 미리보기 새로고침 <span>↗</span>';
 }
 
@@ -267,7 +268,7 @@ function resetPreview(message: string) {
 
 function schedulePreview(delay = 450) {
   window.clearTimeout(autoPreviewTimer);
-  if (!data || route.length < 2 || !bounds || !area) return;
+  if (!bounds || !area) return;
   autoPreviewTimer = window.setTimeout(() => void generate(), delay);
 }
 
@@ -275,7 +276,7 @@ function markDirty(delay = 450) {
   revision++;
   generationController?.abort();
   dirty = true;
-  if (route.length < 2) {
+  if (!bounds && route.length < 2) {
     resetPreview('지도에서 출발점과 도착점을<br>차례로 클릭해 주세요.');
     status('출발점과 도착점을 정해 주세요.');
   } else if (!bounds) {
@@ -432,13 +433,13 @@ function renderPlaceResults(results: PlaceResult[]) {
 
 const koreaButton = document.createElement('button');
 koreaButton.type = 'button';
-koreaButton.textContent = '남한 전체';
+koreaButton.textContent = '한반도 전체';
 koreaButton.onclick = () => {
-  map.fitBounds([[SOUTH_KOREA_BOUNDS.south, SOUTH_KOREA_BOUNDS.west], [SOUTH_KOREA_BOUNDS.north, SOUTH_KOREA_BOUNDS.east]], { padding: [18, 18] });
+  map.fitBounds([[PENINSULA_BOUNDS.south, PENINSULA_BOUNDS.west], [PENINSULA_BOUNDS.north, PENINSULA_BOUNDS.east]], { padding: [18, 18] });
   placeMarker.remove();
   setMode('move');
   placeDialog.close();
-  $('map-caption').textContent = '남한 전체로 이동했습니다 · 지역 찾기에서 원하는 곳을 선택하세요';
+  $('map-caption').textContent = '한반도 전체로 이동했습니다 · 지역 찾기에서 원하는 곳을 선택하세요';
 };
 $('quick-places').append(koreaButton);
 for (const place of QUICK_PLACES) {
@@ -486,7 +487,7 @@ $<HTMLFormElement>('place-form').onsubmit = async (event) => {
     const url = new URL(endpoint);
     url.searchParams.set('q', query);
     url.searchParams.set('format', 'jsonv2');
-    url.searchParams.set('countrycodes', 'kr');
+    url.searchParams.set('countrycodes', 'kr,kp');
     url.searchParams.set('limit', '5');
     url.searchParams.set('accept-language', 'ko');
     const response = await fetch(url, { signal: AbortSignal.timeout(9000) });
@@ -583,7 +584,7 @@ $('clear').onclick = () => {
 };
 $('fit').onclick = () => {
   if (route.length > 1) map.fitBounds(path.getBounds(), { padding: [40, 40] });
-  else map.fitBounds([[SOUTH_KOREA_BOUNDS.south, SOUTH_KOREA_BOUNDS.west], [SOUTH_KOREA_BOUNDS.north, SOUTH_KOREA_BOUNDS.east]], { padding: [18, 18] });
+  else map.fitBounds([[PENINSULA_BOUNDS.south, PENINSULA_BOUNDS.west], [PENINSULA_BOUNDS.north, PENINSULA_BOUNDS.east]], { padding: [18, 18] });
 };
 $('camera').onclick = () => preview?.reset();
 
@@ -635,7 +636,7 @@ function generationError(error: unknown) {
 }
 
 async function generate() {
-  if (busy || !data || route.length < 2 || !bounds || !area) {
+  if (busy || !bounds || !area) {
     if (busy && dirty) schedulePreview(350);
     return;
   }
@@ -725,12 +726,13 @@ resetPreview('지도에서 출발점과 도착점을 정하고<br>3D로 만들 �
 buttons();
 loadJinju().then((landscape) => {
   jinjuData = landscape;
+  if (bounds || busy) return;
   data = landscape;
   showFeatures();
   $('source').textContent = '대한민국 실제 고도 · 남한 전역 로컬 지원';
-  status('남한 지도가 준비되었습니다. 원하는 지역을 확대하고 출발점을 클릭해 주세요.');
+  status('한반도 지도가 준비되었습니다. 원하는 지역을 확대하고 출발점을 클릭해 주세요.');
   buttons();
-}).catch((error) => status(String(error), true));
+}).catch(() => { /* Bundled Jinju data is optional for other regions. */ });
 
 // Optional browser-agent integration. No effect in browsers without WebMCP.
 const context = (document as Document & { modelContext?: { registerTool: (tool: unknown, options: unknown) => void | Promise<void> } }).modelContext;
@@ -739,7 +741,7 @@ if (context?.registerTool) {
   const read = () => ({ busy, dirty, points: route.length, distanceKm: distanceKm(route), bounds: bounds ?? null, area: area ? { kind: area.kind, points: area.points.length } : null, settings: settings(), model: model ? { width: model.width, depth: model.depth, height: model.height, layers: model.parts.map((part) => part.name) } : null });
   for (const tool of [
     { name: 'read_route_model', description: 'Read the current route, output bounds, settings and generated model dimensions.', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true }, execute: read },
-    { name: 'generate_route_model', description: 'Generate the 3D model from the current visible route and controls. Does not download files.', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: false }, async execute(input: unknown) { if (!input || typeof input !== 'object' || Object.keys(input).length) throw Error('Expected an empty object'); if (busy || !data || route.length < 2 || !bounds || !area) throw Error('Model is not ready for generation'); await generate(); if (dirty) throw Error($('status').textContent || 'Generation failed'); return read(); } },
+    { name: 'generate_route_model', description: 'Generate the 3D model from the current visible route and controls. Does not download files.', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: false }, async execute(input: unknown) { if (!input || typeof input !== 'object' || Object.keys(input).length) throw Error('Expected an empty object'); if (busy || !bounds || !area) throw Error('Model is not ready for generation'); await generate(); if (dirty) throw Error($('status').textContent || 'Generation failed'); return read(); } },
   ]) {
     try { Promise.resolve(context.registerTool(tool, { signal: lifecycle.signal })).catch(console.warn); } catch (error) { console.warn(error); }
   }
@@ -757,7 +759,10 @@ const importer = createRouteImport((points, importedBounds, label) => {
   setMode('move');
   markDirty(50);
   status(`${label}와 범위를 적용했습니다. 선택 영역의 3D 미리보기를 생성합니다.`);
-}, () => bounds ?? SOUTH_KOREA_BOUNDS);
+}, () => {
+  const view = map.getBounds();
+  return { south: view.getSouth(), west: view.getWest(), north: view.getNorth(), east: view.getEast() };
+}, () => savedRoutes);
 $('import-route').onclick = () => { if (!busy) importer.open(); };
 
 let dragDepth = 0;
@@ -784,3 +789,16 @@ document.addEventListener('drop', (event) => {
   const file = event.dataTransfer?.files[0];
   if (file && !busy) importer.open(file);
 });
+
+const startMode = new URLSearchParams(location.search).get('start');
+if (startMode === 'photo') importer.open();
+if (startMode === 'area') setMode('area');
+
+$('ask-model').onclick = () => {
+  if (!model || dirty || busy || !bounds) return;
+  const parameters = new URLSearchParams({
+    width: model.width.toFixed(1), depth: model.depth.toFixed(1),
+    height: model.height.toFixed(1), km: distanceKm(route).toFixed(2)
+  });
+  location.href = './?' + parameters + '#contact';
+};

@@ -92,3 +92,105 @@ export function extractNaverRoute(rgba:Uint8ClampedArray,w:number,h:number,crop:
  const result=traceMask(mask,w,h,selected.best.length,true);
  return {...result,confidence:selected.best.length/Math.max(1,total)};
 }
+
+// Find prominent saturated stroke colours, then score connected, long, thin traces.
+// Area fills (parks, water) and small map symbols should not outrank the route.
+export function detectRouteColour(data: Uint8ClampedArray, width: number, height: number, crop: [number,number,number,number]) {
+  const bins = new Map<number,{count:number; sums:number[]}>();
+  for (let y=crop[1]; y<crop[3]; y+=2) for (let x=crop[0]; x<crop[2]; x+=2) {
+    const i=(y*width+x)*4, rgb=[data[i],data[i+1],data[i+2]];
+    if (data[i+3]<128 || Math.max(...rgb)-Math.min(...rgb)<75) continue;
+    const key=(rgb[0]>>5)*64+(rgb[1]>>5)*8+(rgb[2]>>5);
+    const bin=bins.get(key) ?? {count:0,sums:[0,0,0]};
+    bin.count++; rgb.forEach((v,j)=>bin.sums[j]+=v); bins.set(key,bin);
+  }
+  let best: {path:Pixel[];color:number[];score:number}|undefined;
+  for (const bin of [...bins.values()].sort((a,b)=>b.count-a.count).slice(0,6)) {
+    if (bin.count < 12) continue;
+    const color=bin.sums.map(sum=>Math.round(sum/bin.count));
+    try {
+      const result=extractRoute(data,width,height,color,60,crop);
+      const length=result.path.slice(1).reduce((sum,p,i)=>sum+Math.hypot(p[0]-result.path[i][0],p[1]-result.path[i][1]),0);
+      if (length < Math.max(width,height)*.15 || result.coverage < .35 || bin.count*4*result.coverage/length > 22) continue;
+      const score=length*result.coverage;
+      if (!best || score>best.score) best={path:result.path,color,score};
+    } catch { /* Try the next colour. */ }
+  }
+  // Pace maps often change from green to yellow to red along a single stroke.
+  // Inspect connected saturated pixels together so a single hue cannot truncate it.
+  const mask=new Uint8Array(width*height);
+  for(let y=Math.max(1,crop[1]);y<Math.min(height-1,crop[3]);y++){
+    for(let x=Math.max(1,crop[0]);x<Math.min(width-1,crop[2]);x++){
+      const i=y*width+x,j=i*4;
+      const high=Math.max(data[j],data[j+1],data[j+2]),low=Math.min(data[j],data[j+1],data[j+2]);
+      if(data[j+3]>128 && high>=110 && high-low>=88) mask[i]=1;
+    }
+  }
+  const group=largestComponent(mask,width).best;
+  if(group.length>=40 && group.length<width*height*.22){
+    const stroke=new Uint8Array(mask.length);
+    for(const i of group) stroke[i]=1;
+    try{
+      const trace=traceMask(stroke,width,height,group.length);
+      const length=trace.path.slice(1).reduce((sum,p,i)=>sum+Math.hypot(p[0]-trace.path[i][0],p[1]-trace.path[i][1]),0);
+      if(length>Math.max(width,height)*.2 && group.length/length<18 && (!best || length>best.score*1.25)){
+        const offset=group[Math.floor(group.length/2)]*4;
+        best={path:trace.path,color:Array.from(data.slice(offset,offset+3)),score:length};
+      }
+    }catch{ /* Intersecting or filled map areas remain available for manual tracing. */ }
+  }
+  return best;
+}
+
+// Compare curves at equal arc-length intervals to handle different screenshot scales.
+// Only distinctive shapes with a single unambiguous saved GPS match get a proposal.
+function curveSamples(curve:Pixel[], count=32): Pixel[] {
+  const lengths=[0];
+  for(let i=1;i<curve.length;i++) lengths.push(lengths[i-1]+Math.hypot(curve[i][0]-curve[i-1][0],curve[i][1]-curve[i-1][1]));
+  const total=lengths.at(-1) ?? 0;
+  if(total<=0) return [];
+  let j=1;
+  return Array.from({length:count},(_,i)=>{
+    const target=total*i/(count-1);
+    while(j<curve.length-1 && lengths[j]<target) j++;
+    const t=(target-lengths[j-1])/(lengths[j]-lengths[j-1] || 1);
+    return [curve[j-1][0]+t*(curve[j][0]-curve[j-1][0]),curve[j-1][1]+t*(curve[j][1]-curve[j-1][1])];
+  });
+}
+
+export function matchSavedCourse(path:Pixel[], courses:{name:string;route:Point[]}[]) {
+  if(path.length<6) return;
+  const sample=curveSamples(path);
+  if(!sample.length) return;
+  const first=sample[0];
+  const far=sample.reduce((idx,p,i)=>Math.hypot(p[0]-first[0],p[1]-first[1])>Math.hypot(sample[idx][0]-first[0],sample[idx][1]-first[1])?i:idx,0);
+  const dx=sample[far][0]-first[0],dy=sample[far][1]-first[1],span=Math.hypot(dx,dy);
+  if(span<25 || !sample.some(p=>Math.abs((p[0]-first[0])*dy-(p[1]-first[1])*dx)>span*span*.14)) return;
+  const loop=Math.hypot(sample[31][0]-first[0],sample[31][1]-first[1])<span*.04;
+  const results=[];
+  for(const course of courses) {
+    if(course.route.length<6) continue;
+    const points=curveSamples(course.route.map(p=>{const [x,y]=mercator(p);return [x,-y];}));
+    if(!points.length) continue;
+    let best;
+    for(const order of [points,[...points].reverse()]) {
+      for(let shift=0;shift<(loop?31:1);shift++){
+        const at=(i:number)=>order[loop?(shift+i)%31:i];
+        const origin=at(0),other=at(far),gx=other[0]-origin[0],gy=other[1]-origin[1],scale=Math.hypot(gx,gy);
+        if(scale<1e-7) continue;
+        const c=(gx*dx+gy*dy)/(span*span),s=(gy*dx-gx*dy)/(span*span);
+        const error=Math.sqrt(sample.reduce((sum,p,i)=>{
+          const x=p[0]-first[0],y=p[1]-first[1],target=at(i);
+          return sum+(origin[0]+c*x-s*y-target[0])**2+(origin[1]+s*x+c*y-target[1])**2;
+        },0)/sample.length)/scale;
+        if(!best || error<best.error){
+          const inverse=(p:Pixel):Point=>[(2*Math.atan(Math.exp(-p[1]))-Math.PI/2)*180/Math.PI,p[0]*180/Math.PI];
+          best={name:course.name,error,a:{pixel:first,coordinate:inverse(origin)},b:{pixel:sample[far],coordinate:inverse(other)}};
+        }
+      }
+    }
+    if(best) results.push(best);
+  }
+  results.sort((a,b)=>a.error-b.error);
+  if(results[0]?.error<.035 && (!results[1] || results[1].error-results[0].error>.025)) return results[0];
+}

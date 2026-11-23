@@ -9,6 +9,7 @@ export interface PlaceResult {
 }
 
 const places: Array<[string, number, number, number]> = [
+  ['평양',39.0392,125.7625,13],['개성',37.9708,126.5544,13],['백두산',42.006,128.055,13],['독도',37.242,131.868,15],
   ['서울',37.5665,126.978,13],['부산',35.1796,129.0756,13],['인천',37.4563,126.7052,13],['대구',35.8714,128.6014,13],
   ['대전',36.3504,127.3845,13],['광주',35.1595,126.8526,13],['울산',35.5384,129.3114,13],['세종',36.4801,127.289,13],
   ['제주',33.4996,126.5312,13],['수원',37.2636,127.0286,14],['성남',37.4200,127.1265,14],['고양',37.6584,126.8320,14],
@@ -20,7 +21,7 @@ const places: Array<[string, number, number, number]> = [
   ['영도',35.0912,129.0680,14],['진주성',35.1891,128.0779,16],['한라산',33.3617,126.5292,14],['설악산',38.1195,128.4656,14],
 ];
 
-export const QUICK_PLACES = places.slice(0, 9).map(([name,lat,lon,zoom])=>({name,coordinate:[lat,lon] as Point,zoom}));
+export const QUICK_PLACES = places.slice(0, 13).map(([name,lat,lon,zoom])=>({name,coordinate:[lat,lon] as Point,zoom}));
 
 function normalized(value:string){return value.toLocaleLowerCase('ko-KR').replace(/\s+/g,'');}
 

@@ -25,7 +25,7 @@ function normalize(entry: unknown): SavedRoute | undefined {
   const rawArea = item.area as Record<string, unknown> | undefined;
   const valid = typeof item.id === 'string' && typeof item.name === 'string' && item.name.trim().length > 0
     && typeof item.savedAt === 'string' && typeof item.label === 'string'
-    && Array.isArray(item.route) && item.route.length >= 2 && item.route.length <= 500 && item.route.every(point)
+    && Array.isArray(item.route) && item.route.length <= 500 && item.route.every(point)
     && Boolean(bounds) && finite(bounds!.south) && finite(bounds!.north) && finite(bounds!.west) && finite(bounds!.east)
     && (bounds!.south as number) < (bounds!.north as number) && (bounds!.west as number) < (bounds!.east as number)
     && Boolean(settings) && finite(settings!.width) && finite(settings!.exaggeration) && finite(settings!.routeWidth)
