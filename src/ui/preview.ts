@@ -9,9 +9,19 @@ export function createPreview(container:HTMLElement){
  scene.add(new THREE.HemisphereLight('#ffffff','#71806b',2.7));const sun=new THREE.DirectionalLight('#ffffff',3.3);sun.position.set(-80,-120,220);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);sun.shadow.camera.left=-200;sun.shadow.camera.right=200;sun.shadow.camera.top=200;sun.shadow.camera.bottom=-200;sun.shadow.normalBias=.3;scene.add(sun);
  const floor=new THREE.Mesh(new THREE.PlaneGeometry(2000,2000),new THREE.ShadowMaterial({opacity:.13}));floor.position.z=-.1;floor.receiveShadow=true;scene.add(floor);
  let group=new THREE.Group();scene.add(group);let current:Model|undefined;
- const resize=new ResizeObserver(()=>{const w=container.clientWidth,h=container.clientHeight;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();});resize.observe(container);
- renderer.setAnimationLoop(()=>{controls.update();renderer.render(scene,camera);});
+ let frame = 0;
+ function requestRender() {
+   if (frame) return;
+   frame = requestAnimationFrame(() => {
+     frame = 0;
+     controls.update();
+     renderer.render(scene, camera);
+   });
+ }
+ controls.addEventListener('change', requestRender);
+ renderer.shadowMap.autoUpdate = false;
+ const resize=new ResizeObserver(()=>{const w=container.clientWidth,h=container.clientHeight;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();requestRender();});resize.observe(container);
  const reset=()=>{if(!current)return;const size=Math.max(current.width,current.depth);camera.position.set(size*1.08,-size*1.45,size*1.4);controls.target.set(0,0,current.height*.25);controls.update();};
- const clear=()=>{for(const child of [...group.children]){const mesh=child as THREE.Mesh;mesh.geometry.dispose();(mesh.material as THREE.Material).dispose();}scene.remove(group);group=new THREE.Group();scene.add(group);current=undefined;};
+ const clear=()=>{for(const child of [...group.children]){const mesh=child as THREE.Mesh;mesh.geometry.dispose();(mesh.material as THREE.Material).dispose();}scene.remove(group);group=new THREE.Group();scene.add(group);current=undefined;renderer.shadowMap.needsUpdate=true;requestRender();};
  return {show(model:Model){clear();for(const part of model.parts){const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.BufferAttribute(part.mesh.vertices,3));geometry.setIndex(new THREE.BufferAttribute(part.mesh.triangles,1));geometry.computeVertexNormals();const mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({color:part.color,roughness:.85,metalness:0,flatShading:true,polygonOffset:true,polygonOffsetFactor:part.name==='Route'?-3:part.name==='Water'?-1:0}));mesh.castShadow=mesh.receiveShadow=true;group.add(mesh);}group.position.set(-model.width/2,-model.depth/2,0);current=model;reset();},clear,reset};
 }

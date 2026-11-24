@@ -1,66 +1,74 @@
 import L from 'leaflet';
-import { VectorTile } from '@mapbox/vector-tile';
-import { PbfReader } from 'pbf';
-
-const layers = [
-  ['land', '#dce3cc'], ['ocean', '#b9d8df'], ['water_polygons', '#b9d8df'],
-  ['water_lines', '#94bfcb'], ['buildings', '#d3cabb'], ['streets', '#fffdf4'],
-  ['boundaries', '#999e90'],
-] as const;
-
-function koreanName(properties: Record<string, unknown>) {
-  for (const key of ['name:ko','name_ko','name']) {
-    const name = properties[key];
-    if (typeof name !== 'string') continue;
-    const parts = name.split(/[;\/()]/);
-    const korean = parts.map(s=>s.trim()).find(s=>/[가-힣]/.test(s) && /^[가-힣ㄱ-ㅎㅏ-ㅣ0-9 ·.,()\-]+$/.test(s));
-    if (korean) return korean;
-  }
-  return '';
-}
+import { paintTile } from './paint-tile';
 
 class KoreanBase extends L.GridLayer {
+  private requests = new WeakMap<HTMLElement, AbortController>();
+  private worker?: Worker;
+  private queue: (() => void)[] = [];
+  private painting = false;
+
+  constructor(options: L.GridLayerOptions) {
+    super(options);
+    if (typeof OffscreenCanvas !== 'undefined' && typeof Worker !== 'undefined') {
+      try {
+        this.worker = new Worker(new URL('./tile.worker.ts', import.meta.url), { type: 'module' });
+      } catch { /* The regular canvas renderer also supports restricted browsers. */ }
+    }
+    this.on('tileunload', ({ tile }: L.TileEvent) => this.requests.get(tile)?.abort());
+  }
+
+  private next() {
+    this.painting = false;
+    this.queue.shift()?.();
+  }
+
   createTile(coords: L.Coords, done: L.DoneCallback) {
     const canvas = document.createElement('canvas');
-    const ratio=Math.min(2,window.devicePixelRatio || 1);
-    canvas.width=canvas.height=256*ratio;
-    const ctx=canvas.getContext('2d')!;
-    ctx.scale(ratio,ratio);
-    ctx.fillStyle='#f1eddf';ctx.fillRect(0,0,256,256);
-    const draw=async()=>{
-      const response=await fetch(`https://vector.openstreetmap.org/shortbread_v1/${coords.z}/${coords.x}/${coords.y}.mvt`,{signal:AbortSignal.timeout(20000)});
-      if(!response.ok) throw Error('배경 지도를 불러오지 못했습니다.');
-      const tile=new VectorTile(new PbfReader(await response.arrayBuffer()));
-      for(const [id,color] of layers){
-        const layer=tile.layers[id]; if(!layer) continue;
-        for(let i=0;i<layer.length;i++){
-          const f=layer.feature(i), scale=256/f.extent;
-          ctx.beginPath();
-          for(const ring of f.loadGeometry()){
-            ring.forEach((p,j)=>j?ctx.lineTo(p.x*scale,p.y*scale):ctx.moveTo(p.x*scale,p.y*scale));
-            if(f.type===3)ctx.closePath();
+    canvas.width = canvas.height = Math.round(256 * Math.min(2, window.devicePixelRatio || 1));
+    canvas.style.backgroundColor = '#f1eddf';
+    const request = new AbortController();
+    this.requests.set(canvas, request);
+    const load = async () => {
+      const timeout = setTimeout(() => request.abort(), 20000);
+      let bytes: ArrayBuffer;
+      try {
+        const response = await fetch(`https://vector.openstreetmap.org/shortbread_v1/${coords.z}/${coords.x}/${coords.y}.mvt`, { signal: request.signal });
+        if (!response.ok) throw Error('배경 지도를 불러오지 못했습니다.');
+        bytes = await response.arrayBuffer();
+      } finally {
+        clearTimeout(timeout);
+      }
+      const draw = () => {
+        this.painting = true;
+        const finish = (bitmap?: ImageBitmap) => {
+          try {
+            if (!request.signal.aborted) {
+              const ctx = canvas.getContext('2d')!;
+              if (bitmap) ctx.drawImage(bitmap, 0, 0);
+              else paintTile(ctx, bytes, coords.z, canvas.width / 256);
+              done(undefined, canvas);
+            }
+          } catch (error) {
+            done(error as Error, canvas);
+          } finally {
+            bitmap?.close();
+            this.next();
           }
-          if(f.type===3){ctx.fillStyle=color;ctx.fill('evenodd');}
-          else{ctx.strokeStyle=color;ctx.lineWidth=id==='streets' && coords.z>=12?2:1;ctx.stroke();}
-        }
-      }
-      const used:{x:number;y:number;r:number}[]=[];
-      for(const id of (coords.z>=9 ? ['place_labels','street_labels','pois'] : [])){
-        if(id!=='place_labels' && coords.z<13) continue;
-        const layer=tile.layers[id];if(!layer)continue;
-        for(let i=0;i<layer.length;i++){
-          const feature=layer.feature(i),name=koreanName(feature.properties);
-          if(!name)continue;
-          const line=feature.loadGeometry()[0];if(!line?.length)continue;
-          const anchor=line[Math.floor(line.length/2)],x=anchor.x*256/feature.extent,y=anchor.y*256/feature.extent;
-          ctx.font=id==='place_labels'?'600 13px sans-serif':'11px sans-serif';ctx.textAlign='center';
-          const r=ctx.measureText(name).width/2+3;
-          if(x-r<0||x+r>256||y<13||y>254||used.some(b=>Math.abs(y-b.y)<16 && Math.abs(x-b.x)<r+b.r))continue;
-          used.push({x,y,r});ctx.lineWidth=3;ctx.strokeStyle='#f6f2e6';ctx.strokeText(name,x,y);ctx.fillStyle='#304b38';ctx.fillText(name,x,y);
-        }
-      }
+        };
+        if (request.signal.aborted || !this.worker) return finish();
+        this.worker.onmessage = event => finish(event.data);
+        this.worker.onerror = () => {
+          this.worker?.terminate();
+          this.worker = undefined;
+          finish();
+        };
+        // Keep the buffer available for a local retry if worker rendering fails.
+        this.worker.postMessage({ bytes, zoom: coords.z, size: canvas.width });
+      };
+      if (this.painting) this.queue.push(draw);
+      else draw();
     };
-    draw().then(()=>done(undefined,canvas)).catch(err=>done(err,canvas));
+    load().catch(error => { if (!request.signal.aborted || canvas.isConnected) done(error, canvas); });
     return canvas;
   }
 }
@@ -88,5 +96,5 @@ export function koreanMap(map:L.Map){
     }
   }
   map.on('moveend zoomend resize',updateNames);updateNames();
-  return new KoreanBase({maxNativeZoom:14,maxZoom:19,attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).addTo(map);
+  return new KoreanBase({updateWhenIdle:true,updateWhenZooming:false,maxNativeZoom:14,maxZoom:19,attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).addTo(map);
 }

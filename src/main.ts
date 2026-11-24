@@ -69,7 +69,7 @@ function job(type: string, payload: unknown): Promise<unknown> {
   });
 }
 
-const map = L.map($('map'), { zoomControl: false }).fitBounds([[PENINSULA_BOUNDS.south, PENINSULA_BOUNDS.west], [PENINSULA_BOUNDS.north, PENINSULA_BOUNDS.east]], { padding: [18, 18] });
+const map = L.map($('map'), { zoomControl: false, preferCanvas: true }).fitBounds([[PENINSULA_BOUNDS.south, PENINSULA_BOUNDS.west], [PENINSULA_BOUNDS.north, PENINSULA_BOUNDS.east]], { padding: [18, 18] });
 L.control.zoom({ position: 'bottomleft' }).addTo(map);
 new ResizeObserver(() => map.invalidateSize()).observe($('map'));
 const tileLayer = koreanMap(map);
