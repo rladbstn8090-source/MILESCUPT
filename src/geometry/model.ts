@@ -1,8 +1,8 @@
 import type { Manifold, ManifoldToplevel, Vec2 } from 'manifold-3d';
 import type { Bounds, Landscape, MeshData, Model, Point, SelectionArea, Settings } from '../types';
 export const ELEVATION_COLOR_THRESHOLD = 200;
-export const LOW_TERRAIN_COLOR = '#c9dda2';
-export const HIGH_TERRAIN_COLOR = '#4f7f45';
+export const LOW_TERRAIN_COLOR = '#4f7f45';
+export const HIGH_TERRAIN_COLOR = '#ffffff';
 export function dimensions(bounds:Bounds,longestSide:number){const metersWide=(bounds.east-bounds.west)*111320*Math.cos((bounds.south+bounds.north)*Math.PI/360);const metersDeep=(bounds.north-bounds.south)*111320;const scale=longestSide/Math.max(metersWide,metersDeep);return {width:metersWide*scale,depth:metersDeep*scale,scale};}
 export function coastalOceanCells(elevations:number[],n:number){const candidate=new Uint8Array(n*n),result=new Uint8Array(n*n);for(let y=0;y<n;y++)for(let x=0;x<n;x++){const i=y*(n+1)+x,corners=[elevations[i],elevations[i+1],elevations[i+n+1],elevations[i+n+2]];if(corners.filter(value=>value<=0).length>=3||corners.reduce((sum,value)=>sum+value,0)/4<-.5)candidate[y*n+x]=1;}const seen=new Uint8Array(candidate.length),minimum=Math.max(3,Math.ceil(n*n*.0015));for(let i=0;i<candidate.length;i++)if(candidate[i]&&!seen[i]){const group=[i];let edge=false;seen[i]=1;for(let k=0;k<group.length;k++){const cell=group[k],x=cell%n,y=Math.floor(cell/n);if(x===0||y===0||x===n-1||y===n-1)edge=true;for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){const xx=x+dx,yy=y+dy,j=yy*n+xx;if(xx>=0&&yy>=0&&xx<n&&yy<n&&candidate[j]&&!seen[j]){seen[j]=1;group.push(j);}}}if(edge&&group.length>=minimum)group.forEach(cell=>result[cell]=1);}return result;}
 export function meshOf(solid:Manifold):MeshData {if(solid.status()!=='NoError')throw Error(`Mesh: ${solid.status()}`);const m=solid.getMesh(); const vertices=new Float32Array(m.numVert*3);for(let i=0;i<m.numVert;i++)vertices.set(m.vertProperties.subarray(i*m.numProp,i*m.numProp+3),i*3);return {vertices,triangles:new Uint32Array(m.triVerts)};}
@@ -13,7 +13,7 @@ export function generateModel(api:ManifoldToplevel,data:Landscape,bounds:Bounds,
  const objects:{delete():void}[]=[]; const keep=<T extends {delete():void}>(x:T):T=>{objects.push(x);return x;};
  try{
  const n=Math.min(320,Math.max(96,data.resolution));const sampled:number[]=[];
- function sample(lat:number,lon:number){const r=data.resolution;const fx=Math.max(0,Math.min(r,(lon-data.bounds.west)/(data.bounds.east-data.bounds.west)*r)),fy=Math.max(0,Math.min(r,(lat-data.bounds.south)/(data.bounds.north-data.bounds.south)*r));const x=Math.min(r-1,Math.floor(fx)),y=Math.min(r-1,Math.floor(fy)),u=fx-x,v=fy-y;const at=(a:number,b:number)=>data.elevations[b*(r+1)+a];return at(x,y)*(1-u)*(1-v)+at(x+1,y)*u*(1-v)+at(x,y+1)*(1-u)*v+at(x+1,y+1)*u*v;}
+ function sample(lat:number,lon:number){const r=data.resolution;const fx=Math.max(0,Math.min(r,(lon-data.bounds.west)/(data.bounds.east-data.bounds.west)*r)),fy=Math.max(0,Math.min(r,(lat-data.bounds.south)/(data.bounds.north-data.bounds.south)*r));const x=Math.min(r-1,Math.floor(fx)),y=Math.min(r-1,Math.floor(fy)),u=fx-x,v=fy-y;const at=(a:number,b:number)=>data.elevations[b*(r+1)+a];const lower=at(x,y)+(at(x+1,y)-at(x,y))*u,upper=at(x,y+1)+(at(x+1,y+1)-at(x,y+1))*u;return lower+(upper-lower)*v;}
  for(let y=0;y<=n;y++)for(let x=0;x<=n;x++)sampled.push(sample(bounds.south+(bounds.north-bounds.south)*y/n,bounds.west+(bounds.east-bounds.west)*x/n));
  // Terrarium tiles include negative bathymetry. Treat it as sea, and keep the
  // printable terrain surface at sea level instead of turning ocean depth into mountains.
@@ -34,11 +34,37 @@ export function generateModel(api:ManifoldToplevel,data:Landscape,bounds:Bounds,
  const terrain=keep(baseTerrain.intersect(cropPrism));
  if(terrain.isEmpty())throw Error('선택한 출력 영역이 비어 있습니다. 범위를 다시 선택해 주세요.');
  const parts:Model['parts']=[];
- if(maxElevation<=ELEVATION_COLOR_THRESHOLD){parts.push({name:'Terrain 0-200m',color:LOW_TERRAIN_COLOR,mesh:meshOf(terrain)});}
- else if(min>=ELEVATION_COLOR_THRESHOLD){parts.push({name:'Terrain Above 200m',color:HIGH_TERRAIN_COLOR,mesh:meshOf(terrain)});}
- else {const thresholdZ=3+(ELEVATION_COLOR_THRESHOLD-min)*scale*settings.exaggeration;const lowVolume=keep(cropSection.extrude(thresholdZ));const lowTerrain=keep(terrain.intersect(lowVolume));const highTerrain=keep(terrain.subtract(lowVolume));if(!lowTerrain.isEmpty())parts.push({name:'Terrain 0-200m',color:LOW_TERRAIN_COLOR,mesh:meshOf(lowTerrain)});if(!highTerrain.isEmpty())parts.push({name:'Terrain Above 200m',color:HIGH_TERRAIN_COLOR,mesh:meshOf(highTerrain)});}
+ const thresholdZ = 3 + (ELEVATION_COLOR_THRESHOLD - min) * scale * settings.exaggeration;
+ let lowVolume: Manifold | undefined;
+ if (min < ELEVATION_COLOR_THRESHOLD && maxElevation >= ELEVATION_COLOR_THRESHOLD) {
+   lowVolume = keep(cropSection.extrude(thresholdZ));
+   // A horizontal cut alone leaves a shelf exactly at 200 m with no white volume.
+   const shelves: Vec2[][] = [];
+   for (let i = 0; i < n * n * 6; i += 3) {
+     if (raw[tri[i]] !== ELEVATION_COLOR_THRESHOLD || raw[tri[i + 1]] !== ELEVATION_COLOR_THRESHOLD || raw[tri[i + 2]] !== ELEVATION_COLOR_THRESHOLD) continue;
+     shelves.push(tri.slice(i, i + 3).map(id => [vertices[3 * id], vertices[3 * id + 1]]));
+   }
+   if (shelves.length) {
+     const shelf = keep(new api.CrossSection(shelves, 'NonZero'));
+     const cap = keep(keep(shelf.extrude(0.2)).translate([0, 0, thresholdZ - 0.2]));
+     lowVolume = keep(lowVolume.subtract(cap));
+   }
+ }
+ function addBands(solid: Manifold, lowName: string, highName: string, lift = 0) {
+   if (!lowVolume) {
+     const high = min >= ELEVATION_COLOR_THRESHOLD;
+     parts.push({name: high ? highName : lowName, color: high ? HIGH_TERRAIN_COLOR : LOW_TERRAIN_COLOR, mesh: meshOf(solid)});
+     return;
+   }
+   const divider = lift ? keep(lowVolume.translate([0, 0, lift])) : lowVolume;
+   const low = keep(solid.intersect(divider));
+   const high = keep(solid.subtract(divider));
+   if (!low.isEmpty()) parts.push({name: lowName, color: LOW_TERRAIN_COLOR, mesh: meshOf(low)});
+   if (!high.isEmpty()) parts.push({name: highName, color: HIGH_TERRAIN_COLOR, mesh: meshOf(high)});
+ }
+ addBands(terrain, 'Terrain Below 200m', 'Terrain 200m and Higher');
  const features=data.features;
- if(settings.parks!==false){const sections=[];for(const feature of features.filter(f=>f.kind==='park')){const section=keep(new api.CrossSection(feature.rings.map(r=>r.map(project)),'EvenOdd'));if(section.area()>=.08)sections.push(section);}if(sections.length){const union=keep(api.CrossSection.union(sections));const clipped=keep(union.intersect(cropSection));const prism=keep(clipped.extrude(maxZ));const raised=keep(terrain.translate([0,0,.28]));const parks=keep(prism.intersect(raised));if(!parks.isEmpty())parts.push({name:'Parks',color:LOW_TERRAIN_COLOR,mesh:meshOf(parks)});}}
+ if(settings.parks!==false){const sections=[];for(const feature of features.filter(f=>f.kind==='park')){const section=keep(new api.CrossSection(feature.rings.map(r=>r.map(project)),'EvenOdd'));if(section.area()>=.08)sections.push(section);}if(sections.length){const union=keep(api.CrossSection.union(sections));const clipped=keep(union.intersect(cropSection));const prism=keep(clipped.extrude(maxZ));const raised=keep(terrain.translate([0,0,.28]));const parks=keep(prism.intersect(raised));if(!parks.isEmpty())addBands(parks, 'Parks', 'Parks 200m and Higher', .28);}}
  if(settings.water){const waterSolids:Manifold[]=[];const sections=[];for(const feature of features.filter(f=>f.kind==='water')){const section=keep(new api.CrossSection(feature.rings.map(r=>r.map(project)),'EvenOdd'));sections.push(section);}if(sections.length){const union=keep(api.CrossSection.union(sections));const clipped=keep(union.intersect(cropSection));const prism=keep(clipped.extrude(maxZ));const raised=keep(terrain.translate([0,0,.45]));const inlandWater=keep(prism.intersect(raised));if(!inlandWater.isEmpty())waterSolids.push(inlandWater);}
  if(hasSea){const seaSections=[];const cellWidth=width/n,cellDepth=depth/n;for(let y=0;y<n;y++){let start=-1;for(let x=0;x<=n;x++){const ocean=x<n&&Boolean(seaCells[y*n+x]);if(ocean&&start<0)start=x;if((!ocean||x===n)&&start>=0){const end=x;const strip=keep(api.CrossSection.square([(end-start)*cellWidth,cellDepth]).translate([start*cellWidth,y*cellDepth]));seaSections.push(strip);start=-1;}}}
   if(seaSections.length){const seaShape=keep(api.CrossSection.union(seaSections));const seaLevel=3.45;const sea=keep(seaShape.extrude(seaLevel));if(!sea.isEmpty())waterSolids.push(sea);}}
